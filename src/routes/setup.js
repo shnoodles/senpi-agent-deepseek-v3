@@ -679,12 +679,33 @@ export function createSetupRouter() {
 
       // Set base URL on the provider
       if (baseUrl && model) {
-        const providerName = model.split("/")[0]; // e.g. "openai" from "openai/deepseek-chat"
+        const providerName = model.split("/")[0]; // e.g. "deepseek" from "deepseek/deepseek-chat"
         if (!cfg.models) cfg.models = {};
         if (!cfg.models.providers) cfg.models.providers = {};
         if (!cfg.models.providers[providerName]) cfg.models.providers[providerName] = {};
         cfg.models.providers[providerName].baseUrl = baseUrl;
         results.push(`set ${providerName} baseUrl: ${baseUrl}`);
+      }
+
+      // Remove any provider entries that have no "models" array (validator requires it)
+      if (cfg.models?.providers) {
+        for (const [name, prov] of Object.entries(cfg.models.providers)) {
+          if (prov && typeof prov === "object" && !Array.isArray(prov.models)) {
+            delete cfg.models.providers[name];
+            results.push(`removed incomplete provider: ${name}`);
+          }
+        }
+      }
+
+      // Also accept a "removeProviders" array to clean up stale entries
+      const { removeProviders } = req.body || {};
+      if (Array.isArray(removeProviders) && cfg.models?.providers) {
+        for (const name of removeProviders) {
+          if (cfg.models.providers[name]) {
+            delete cfg.models.providers[name];
+            results.push(`removed provider: ${name}`);
+          }
+        }
       }
 
       fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
