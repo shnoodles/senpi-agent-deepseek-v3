@@ -656,41 +656,48 @@ export function createSetupRouter() {
    */
   router.post("/api/patch-model", requireSetupAuth, async (req, res) => {
     try {
-      const { baseUrl, model } = req.body || {};
+      const { baseUrl, model, provider } = req.body || {};
       const results = [];
 
-      if (baseUrl) {
-        const r = await runCmd(OPENCLAW_NODE, clawArgs(["config", "set", "models.default.baseUrl", baseUrl]));
-        results.push(`default.baseUrl: exit=${r.code}`);
-      }
+      // Patch the raw config file directly
+      const cfg = JSON.parse(fs.readFileSync(configPath(), "utf8"));
+
+      // Update agent model
       if (model) {
-        const r = await runCmd(OPENCLAW_NODE, clawArgs(["config", "set", "models.default.model", model]));
-        results.push(`default.model: exit=${r.code}`);
+        if (!cfg.agents) cfg.agents = {};
+        if (!cfg.agents.defaults) cfg.agents.defaults = {};
+        if (!cfg.agents.defaults.model) cfg.agents.defaults.model = {};
+        const oldModel = cfg.agents.defaults.model.primary;
+        cfg.agents.defaults.model.primary = model;
+        results.push(`model: ${oldModel} → ${model}`);
+
+        // Update models alias map
+        if (!cfg.agents.defaults.models) cfg.agents.defaults.models = {};
+        cfg.agents.defaults.models[model] = { alias: provider || model.split("/")[0] };
+        results.push(`added model alias for ${model}`);
       }
 
-      // Also try to read and patch the raw config file for provider-level settings
+      // Set base URL on the provider
+      if (baseUrl && model) {
+        const providerName = model.split("/")[0]; // e.g. "openai" from "openai/deepseek-chat"
+        if (!cfg.models) cfg.models = {};
+        if (!cfg.models.providers) cfg.models.providers = {};
+        if (!cfg.models.providers[providerName]) cfg.models.providers[providerName] = {};
+        cfg.models.providers[providerName].baseUrl = baseUrl;
+        results.push(`set ${providerName} baseUrl: ${baseUrl}`);
+      }
+
+      fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
+      results.push("config saved");
+
+      // Restart gateway to pick up changes
       try {
-        const cfg = JSON.parse(fs.readFileSync(configPath(), "utf8"));
-        if (baseUrl && cfg.models?.providers) {
-          for (const [name, provider] of Object.entries(cfg.models.providers)) {
-            if (provider && typeof provider === "object") {
-              provider.baseUrl = baseUrl;
-              results.push(`patched provider ${name} baseUrl`);
-            }
-          }
-        }
-        if (baseUrl && cfg.models?.profiles) {
-          for (const [name, profile] of Object.entries(cfg.models.profiles)) {
-            if (profile && typeof profile === "object") {
-              profile.baseUrl = baseUrl;
-              results.push(`patched profile ${name} baseUrl`);
-            }
-          }
-        }
-        fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
-        results.push("config file written");
+        const { restartGateway } = await import("../gateway.js");
+        const gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN || "";
+        await restartGateway(gatewayToken);
+        results.push("gateway restarted");
       } catch (err) {
-        results.push(`raw patch error: ${err.message}`);
+        results.push(`gateway restart: ${err.message}`);
       }
 
       return res.json({ ok: true, results });
