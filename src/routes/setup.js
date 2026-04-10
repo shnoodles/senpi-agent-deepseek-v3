@@ -705,11 +705,20 @@ export function createSetupRouter() {
   router.get("/api/model-config", requireSetupAuth, async (_req, res) => {
     try {
       const cfg = JSON.parse(fs.readFileSync(configPath(), "utf8"));
-      return res.json({
-        providers: cfg.models?.providers || {},
-        profiles: cfg.models?.profiles || {},
-        default: cfg.models?.default || {},
-      });
+      // Return full config but redact secrets
+      const safe = JSON.parse(JSON.stringify(cfg));
+      const redact = (obj) => {
+        if (!obj || typeof obj !== "object") return;
+        for (const [k, v] of Object.entries(obj)) {
+          if (typeof v === "string" && (k.toLowerCase().includes("key") || k.toLowerCase().includes("token") || k.toLowerCase().includes("secret"))) {
+            obj[k] = v.slice(0, 8) + "..." + v.slice(-4);
+          } else if (typeof v === "object") {
+            redact(v);
+          }
+        }
+      };
+      redact(safe);
+      return res.json(safe);
     } catch (err) {
       return res.status(500).json({ error: String(err) });
     }
