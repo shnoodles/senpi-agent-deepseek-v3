@@ -384,9 +384,9 @@ console.log(`[auto-onboard] directory created`);
     let authChoice = PROVIDER_TO_AUTH_CHOICE[AI_PROVIDER];
     const effectiveKey = resolveEffectiveApiKey();
 
-    // DeepSeek/Together use OpenAI-compatible APIs — onboard as openai-api-key
-    // then patch the base URL after onboarding completes.
-    const OPENAI_COMPAT_PROVIDERS = new Set(["deepseek-api-key", "together-api-key"]);
+    // Together uses OpenAI-compatible APIs — onboard as openai-api-key
+    // DeepSeek is now natively supported by the CLI (--deepseek-api-key)
+    const OPENAI_COMPAT_PROVIDERS = new Set(["together-api-key"]);
     if (OPENAI_COMPAT_PROVIDERS.has(authChoice)) {
       console.log(`[auto-onboard] ${authChoice} not supported by CLI — falling back to openai-api-key`);
       authChoice = "openai-api-key";
