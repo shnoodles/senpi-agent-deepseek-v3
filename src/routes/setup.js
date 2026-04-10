@@ -650,6 +650,71 @@ export function createSetupRouter() {
     }
   });
 
+  /**
+   * POST /setup/api/patch-model — Patch model provider config (base URL, model ID).
+   * Body: { "baseUrl": "https://...", "model": "deepseek-chat" }
+   */
+  router.post("/api/patch-model", requireSetupAuth, async (req, res) => {
+    try {
+      const { baseUrl, model } = req.body || {};
+      const results = [];
+
+      if (baseUrl) {
+        const r = await runCmd(OPENCLAW_NODE, clawArgs(["config", "set", "models.default.baseUrl", baseUrl]));
+        results.push(`default.baseUrl: exit=${r.code}`);
+      }
+      if (model) {
+        const r = await runCmd(OPENCLAW_NODE, clawArgs(["config", "set", "models.default.model", model]));
+        results.push(`default.model: exit=${r.code}`);
+      }
+
+      // Also try to read and patch the raw config file for provider-level settings
+      try {
+        const cfg = JSON.parse(fs.readFileSync(configPath(), "utf8"));
+        if (baseUrl && cfg.models?.providers) {
+          for (const [name, provider] of Object.entries(cfg.models.providers)) {
+            if (provider && typeof provider === "object") {
+              provider.baseUrl = baseUrl;
+              results.push(`patched provider ${name} baseUrl`);
+            }
+          }
+        }
+        if (baseUrl && cfg.models?.profiles) {
+          for (const [name, profile] of Object.entries(cfg.models.profiles)) {
+            if (profile && typeof profile === "object") {
+              profile.baseUrl = baseUrl;
+              results.push(`patched profile ${name} baseUrl`);
+            }
+          }
+        }
+        fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
+        results.push("config file written");
+      } catch (err) {
+        results.push(`raw patch error: ${err.message}`);
+      }
+
+      return res.json({ ok: true, results });
+    } catch (err) {
+      return res.status(500).json({ ok: false, error: String(err) });
+    }
+  });
+
+  /**
+   * GET /setup/api/model-config — Read current model configuration for debugging.
+   */
+  router.get("/api/model-config", requireSetupAuth, async (_req, res) => {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(configPath(), "utf8"));
+      return res.json({
+        providers: cfg.models?.providers || {},
+        profiles: cfg.models?.profiles || {},
+        default: cfg.models?.default || {},
+      });
+    } catch (err) {
+      return res.status(500).json({ error: String(err) });
+    }
+  });
+
   router.post("/api/reset", requireSetupAuth, async (_req, res) => {
     try {
       fs.rmSync(configPath(), { force: true });
