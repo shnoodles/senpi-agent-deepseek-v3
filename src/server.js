@@ -49,6 +49,27 @@ if (!SETUP_PASSWORD) {
 const OPENCLAW_GATEWAY_TOKEN = resolveGatewayToken();
 process.env.OPENCLAW_GATEWAY_TOKEN = OPENCLAW_GATEWAY_TOKEN;
 
+// Propagate effective API key to provider-specific env vars so openclaw config
+// references like ${DEEPSEEK_API_KEY} resolve correctly even when user only sets AI_API_KEY.
+{
+  const PROVIDER_ENV_MAP = {
+    deepseek: "DEEPSEEK_API_KEY",
+    together: "TOGETHER_API_KEY",
+    moonshot: "MOONSHOT_API_KEY",
+    gemini: "GEMINI_API_KEY",
+    venice: "VENICE_API_KEY",
+    zai: "ZAI_API_KEY",
+  };
+  const envVar = PROVIDER_ENV_MAP[AI_PROVIDER];
+  if (envVar && !process.env[envVar]) {
+    const effectiveKey = resolveEffectiveApiKey();
+    if (effectiveKey) {
+      process.env[envVar] = effectiveKey;
+      console.log(`[wrapper] Propagated effective key to ${envVar}`);
+    }
+  }
+}
+
 const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
