@@ -381,8 +381,17 @@ console.log(`[auto-onboard] directory created`);
     fs.mkdirSync(STATE_DIR, { recursive: true });
     fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
 
-    const authChoice = PROVIDER_TO_AUTH_CHOICE[AI_PROVIDER];
+    let authChoice = PROVIDER_TO_AUTH_CHOICE[AI_PROVIDER];
     const effectiveKey = resolveEffectiveApiKey();
+
+    // DeepSeek/Together use OpenAI-compatible APIs — onboard as openai-api-key
+    // then patch the base URL after onboarding completes.
+    const OPENAI_COMPAT_PROVIDERS = new Set(["deepseek-api-key", "together-api-key"]);
+    if (OPENAI_COMPAT_PROVIDERS.has(authChoice)) {
+      console.log(`[auto-onboard] ${authChoice} not supported by CLI — falling back to openai-api-key`);
+      authChoice = "openai-api-key";
+    }
+
     const payload = {
       flow: "quickstart",
       authChoice,
@@ -411,6 +420,34 @@ console.log(`[auto-onboard] directory created`);
     }
 
     console.log("[auto-onboard] Onboarding succeeded");
+
+    // Patch base URL for OpenAI-compatible providers (DeepSeek, Together, etc.)
+    const { PROVIDER_BASE_URL } = await import("./lib/config.js");
+    const baseUrl = PROVIDER_BASE_URL[AI_PROVIDER];
+    if (baseUrl) {
+      console.log(`[auto-onboard] Patching model base URL to ${baseUrl} for provider ${AI_PROVIDER}`);
+      try {
+        const cfgRaw = JSON.parse(fs.readFileSync(configPath(), "utf8"));
+        // Find the active model profile and set its baseUrl
+        const profiles = cfgRaw?.models?.profiles;
+        if (profiles && typeof profiles === "object") {
+          for (const [key, profile] of Object.entries(profiles)) {
+            if (profile && typeof profile === "object") {
+              profile.baseUrl = baseUrl;
+              console.log(`[auto-onboard] Patched profile "${key}" baseUrl to ${baseUrl}`);
+            }
+          }
+          fs.writeFileSync(configPath(), JSON.stringify(cfgRaw, null, 2));
+        } else {
+          // Fallback: set via CLI
+          await runCmd(OPENCLAW_NODE, clawArgs(["config", "set", "models.profiles.default.baseUrl", baseUrl]));
+        }
+      } catch (err) {
+        console.warn(`[auto-onboard] Base URL patching failed (non-fatal): ${err.message}`);
+        // Try CLI fallback
+        await runCmd(OPENCLAW_NODE, clawArgs(["config", "set", "models.profiles.default.baseUrl", baseUrl]));
+      }
+    }
 
     console.log("[auto-onboard] Syncing gateway configuration...");
     await runCmd(
